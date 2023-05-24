@@ -9,4 +9,11 @@ from . import laplacian
 from . import analysis
 from . import integrators
 
+try :
+    from . import gpu
+except ImportError:
+    print("Missing packages for GPU functionality")
+except RuntimeError as e:
+    print(e)
+
 __version__ = '0.0.4'

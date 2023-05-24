@@ -1,8 +1,8 @@
-# quflow
+# quflow-cu
 
-A Python module for quantized vorticity flows. 
+A Python module for quantized vorticity flows using CUDA.
 The code is based on a paper by Modin and Viviani (2020) [1] 
-where a quantized Euler equation on the sphere is presented.
+where a quantized Euler equation on the sphere is presented, and the original module `quflow` by Klas Modin: https://github.com/kmodin/quflow .
 
 ## Spherical coordinates
 
@@ -22,6 +22,8 @@ Required:
 * `pyssht`
 * `h5py`
 * `appdirs`
+* `cupy`
+* `tensorflow`
 
 Optional:
 
@@ -30,9 +32,11 @@ Optional:
 
 ## Installation
 
+Prior to installing package, install `cupy` and `tensorflow` versions with GPU-support depending on your OS. See link for OS specific instructions https://www.tensorflow.org/install/pip#software_requirements .
+
 The module may be installed directly from the repository:
 ```
-> git clone https://github.com/kmodin/quflow.git
+> git clone https://github.com/Filipaun/quflow-cuda.git
 > cd quflow
 > python setup.py install
 # or
@@ -43,7 +47,7 @@ The module may be installed directly from the repository:
 
 Tests can be run using `pytest` to confirm that the installation was successful.
 
-An example notebook `notebooks/basic-example.ipynb` demonstrates the basic functionality. 
+An example notebook `notebooks/gpu-example.ipynb` demonstrates the basic functionality of the CUDA acellerated version.
 
 ## TODOs
 
