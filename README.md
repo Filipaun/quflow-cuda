@@ -1,4 +1,4 @@
-# quflow-cu
+# quflow-cuda
 
 A Python module for quantized vorticity flows using CUDA.
 The code is based on a paper by Modin and Viviani (2020) [1] 
