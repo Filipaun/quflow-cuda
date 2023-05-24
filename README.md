@@ -32,7 +32,10 @@ Optional:
 
 ## Installation
 
-Prior to installing package, install `cupy` and `tensorflow` versions with GPU-support depending on your OS. See link for OS specific instructions https://www.tensorflow.org/install/pip#software_requirements .
+Prior to installing package, install `cupy` and `tensorflow` versions with GPU-support depending on your OS.
+
+* CuPy: https://docs.cupy.dev/en/stable/install.html
+* Tensorflow: https://www.tensorflow.org/install/pip#software_requirements .
 
 The module may be installed directly from the repository:
 ```
