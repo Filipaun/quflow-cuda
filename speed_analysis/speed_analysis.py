@@ -9,7 +9,8 @@ import json
 test_data = {}
 
 # Size of matrices
-N_samples = np.array([30, 40,60,80,100,120,140,160,180,200,250,300,350,400])  
+N_samples = np.array([425, 450, 475, 500, 550, 600, 650])
+success_check = [[False for x in N_samples] for y in range(2)]
 timings = np.zeros((2,len(N_samples)),dtype = float)
 
 time = 3.0 # in second
@@ -18,6 +19,13 @@ qstepsize = 0.2 # in qtime
 
 steps = 2200 
 inner_steps = 200
+
+test_data["success"] = success_check
+test_data["n_samples"] = N_samples.tolist()
+test_data["timings"] = timings.tolist()
+test_data["time"] = time
+test_data["inner_time"] = inner_time
+test_data["qstepsize"] = qstepsize
 
 lmax = 10  # How many spherical harmonics (SH) coefficients to include
 np.random.seed(42)  # For reproducability
@@ -33,6 +41,8 @@ for (i,N) in enumerate(N_samples):
 
     # GPU
     print(f"GPU, N = {N}")
+
+    W_gpu = W0.copy()
     solver_gpu = qf.gpu.isomp_gpu_skewherm_solver(W0)
     ham = qf.gpu.solve_poisson_cp(N)
     method_kwargs = {"hamiltonian": ham, "verbatim":False, "maxit":7, "tol":1e-8}
@@ -45,8 +55,13 @@ for (i,N) in enumerate(N_samples):
     end_time_ns = time_pack.time_ns()
     timings[0,i] = (end_time_ns - start_time_ns)*1e-9
 
+    success_check[0][i] = True
+
+    # -------- #
+
     # CPU
     print(f"CPU, N = {N}")
+
     W_cpu = W0.copy()
     solver_cpu = qf.isomp_fixedpoint
     dt = qf.qtime2seconds(qstepsize, N)
@@ -58,15 +73,13 @@ for (i,N) in enumerate(N_samples):
     
     end_time_ns = time_pack.time_ns()
     timings[1,i] = (end_time_ns - start_time_ns)*1e-9
+    
+    success_check[1][i] = True
 
-test_data["n_samples"] = N_samples.tolist()
-test_data["timings"] = timings.tolist()
-test_data["time"] = time
-test_data["inner_time"] = inner_time
-test_data["qstepsize"] = qstepsize
+    # -------- #
 
-test_data_json = json.dumps(test_data, indent=4)
-
-# TODO: Write to file underway, incase of crash
-with open("speed_test.json","w") as outfile:
-    outfile.write(test_data_json)
+    with open("speed_test.json","w") as outfile:
+        #Update timings
+        test_data["timings"] = timings.tolist()
+        test_data["success"] = success_check
+        json.dump(test_data, outfile, indent=4)
