@@ -211,7 +211,7 @@ def laplace_cp(P):
     return W
 
 
-def solve_tridiagonal_cp(lap, W, P):
+def solve_tridiagonal_cp(lap, W, P, Wdiagh, Pdiagh):
     """
     Function for solving the quantized
     Poisson equation (or more generally the equation defined by
@@ -237,18 +237,12 @@ def solve_tridiagonal_cp(lap, W, P):
     # Should point to same memory adress as cupy array
     lap_tf = tf.experimental.dlpack.from_dlpack(lap.toDlpack())
 
-    # Declare array lower dional form of W
-    Wdiagh = cp.empty((N//2+1,N),dtype='complex128')
     # Swap values into Wdiagh
     # Pass by reference faster than returning ?
     mat2diagh_cp(Wdiagh,W,N)
 
     # Convert to tensor
     Wdiagh_tf = tf.experimental.dlpack.from_dlpack(Wdiagh.toDlpack())
-
-    # Allocate lower diagonal form of P
-    # Necessary ?
-    Pdiagh = cp.zeros_like(Wdiagh)
 
     # For each double-tridiagonal, solve a tridiagonal system
     cp.cuda.runtime.deviceSynchronize()
@@ -334,6 +328,8 @@ class solve_poisson_cp:
     def __init__(self,N, bc = True) -> None:
         self.N = N
         self.lap = cp.asarray(laplacian_cp(N, bc = bc))
+        self.Wdiagh = cp.empty((N//2+1,N),dtype='complex128')
+        self.Pdiagh = cp.empty((N//2+1,N),dtype='complex128')
 
     def __call__(self,W,P) -> None:
         """
@@ -350,7 +346,7 @@ class solve_poisson_cp:
         ##P: ndarray(shape=(N, N), dtype=complex)
         """
 
-        solve_tridiagonal_cp(self.lap, W, P)
+        solve_tridiagonal_cp(self.lap, W, P, self.Wdiagh, self.Pdiagh)
 
 class isomp_gpu_skewherm_solver:
     
@@ -435,9 +431,9 @@ class isomp_gpu_skewherm_solver:
                 cp.copyto(self.dW_old, self.dW)
 
                 # Compute middle variables
-                self.PWcomm = self.Phalf @ self.Whalf
+                cp.matmul(self.Phalf,self.Whalf, out = self.PWcomm)
 
-                self.dW = self.PWcomm @ self.Phalf
+                cp.matmul(self.PWcomm,self.Phalf, out = self.dw)
                 self.PWcomm -= self.PWcomm.conj().T
                 #cp.copyto(self.dW, PWcomm)
                 self.dW =  self.dW + self.PWcomm
