@@ -211,7 +211,7 @@ def laplace_cp(P):
     return W
 
 
-def solve_tridiagonal_cp(lap, W, P, Wdiagh, Pdiagh):
+def solve_tridiagonal_cp(lap, W, P, Wdiagh):
     """
     Function for solving the quantized
     Poisson equation (or more generally the equation defined by
@@ -329,7 +329,7 @@ class solve_poisson_cp:
         self.N = N
         self.lap = cp.asarray(laplacian_cp(N, bc = bc))
         self.Wdiagh = cp.empty((N//2+1,N),dtype='complex128')
-        self.Pdiagh = cp.empty((N//2+1,N),dtype='complex128')
+        #self.Pdiagh = cp.empty((N//2+1,N),dtype='complex128')
 
     def __call__(self,W,P) -> None:
         """
@@ -346,7 +346,7 @@ class solve_poisson_cp:
         ##P: ndarray(shape=(N, N), dtype=complex)
         """
 
-        solve_tridiagonal_cp(self.lap, W, P, self.Wdiagh, self.Pdiagh)
+        solve_tridiagonal_cp(self.lap, W, P, self.Wdiagh)
 
 class isomp_gpu_skewherm_solver:
     
@@ -433,7 +433,7 @@ class isomp_gpu_skewherm_solver:
                 # Compute middle variables
                 cp.matmul(self.Phalf,self.Whalf, out = self.PWcomm)
 
-                cp.matmul(self.PWcomm,self.Phalf, out = self.dw)
+                cp.matmul(self.PWcomm,self.Phalf, out = self.dW)
                 self.PWcomm -= self.PWcomm.conj().T
                 #cp.copyto(self.dW, PWcomm)
                 self.dW =  self.dW + self.PWcomm
@@ -472,5 +472,5 @@ class isomp_gpu_skewherm_solver:
             print("Average number of iterations per step: {:.2f}".format(total_iterations/steps))
 
         cp.cuda.runtime.deviceSynchronize()
-        h_W = self.W.get(out = h_W)
+        self.W.get(out = h_W)
         return h_W
