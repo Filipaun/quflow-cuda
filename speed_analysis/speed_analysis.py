@@ -9,7 +9,7 @@ import json
 test_data = {}
 
 # Size of matrices
-N_samples = np.array([425, 450, 475, 500, 550, 600, 650])
+N_samples = np.array([300])
 success_check = [[False for x in N_samples] for y in range(2)]
 timings = np.zeros((2,len(N_samples)),dtype = float)
 
