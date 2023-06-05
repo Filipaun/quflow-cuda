@@ -3,6 +3,7 @@ import cupy as cp
 import h5py
 import quflow as qf
 import argparse
+import time as time_pack
 
 # ------------------- DEFAULT PARAMETERS ----------------- #
 # Size of matrices
@@ -42,7 +43,6 @@ def main() -> None:
         -t: float, time duration of sim,
         -it: time step of simulation,
         -qs: qtime of steps
-
     """
     # ------------------- ARGPARSE ----------------- #
     parser = init_argparse()
@@ -59,7 +59,11 @@ def main() -> None:
     lmax = 10  # How many spherical harmonics (SH) coefficients to include
     np.random.seed(42)  # For reproducability
     omega0 = np.random.randn(lmax**2)  # Array with SH coefficients
+
+    shr2mat_start_time_ns = time_pack.time_ns()
     W0 = qf.shr2mat(omega0, N=N)  # Convert SH coefficients to matrix
+    shr2mat_elapsed_time_ns = (time_pack.time_ns() - shr2mat_start_time_ns)*1e-9
+
     W0_cp = cp.array(W0)        # Move W0 matrix to GPU
 
     filename_gpu = "gpu_test_sim_N_{}.hdf5".format(str(N))
@@ -86,13 +90,20 @@ def main() -> None:
     # Method kwargs are the same, since we still use the same qf.solve from dynamics.py
     method_kwargs = {"hamiltonian": ham, "verbatim":False, "maxit":7, "tol":1e-8}
 
-    # Run simulation
+    # Time sim
+    sim_start_time_ns = time_pack.time_ns()
 
+    # Run simulation
     qf.solve(W, qstepsize=qstepsize, time=time, inner_time=inner_time, callback=mysim_gpu,
             method=method.solve_step, method_kwargs=method_kwargs)
-
+    
+    sim_elapsed_time_ns = (time_pack.time_ns() - sim_start_time_ns)*1e-9
+    
     # Flush cache data
     mysim_gpu.flush()
+
+    with open("elapsed_time.txt",'w') as time_file:
+        time_file.write(f"{shr2mat_elapsed_time_ns}\n{sim_elapsed_time_ns}")
 
 if __name__ == "__main__":
     main()
