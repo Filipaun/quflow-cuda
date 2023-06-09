@@ -9,11 +9,14 @@ from . import laplacian
 from . import analysis
 from . import integrators
 
+from . import gpu
+
+"""
 try :
-    from . import gpu
+    from . import gpu_tf
 except ImportError:
     print("Missing packages for GPU functionality")
 except RuntimeError as e:
     print(e)
-
+"""
 __version__ = '0.0.4'

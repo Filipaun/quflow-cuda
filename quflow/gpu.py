@@ -1,145 +1,76 @@
 import numpy as np
 import cupy as cp
-import tensorflow as tf
+import pkgutil
 
-gpu_devices = tf.config.list_physical_devices('GPU')
-if (len(gpu_devices) > 0):
-    #print("Found GPU device!")
-    #print(gpu_devices)
-    pass
-else:
-    raise RuntimeError("No GPU found by Tensorflow")
-
-_tridiagonal_laplacian_cp_cache = dict()
+_tridiagonal_laplacian_interleaved_cp_cache = dict()
 
 def check_version():  
-    print(f"Tensorflow version: {tf.__version__}")
     print(f"CuPy version: {cp.__version__}")
 
-mat_tofrom_diag_module = r'''
-#include <cupy/complex.cuh>
-extern "C" {
+# Import cuda source code
 
-__global__ void mat2diagh(complex<double>* lowdiag_matrix, const complex<double>* dense_matrix,\
-                         unsigned int N)
-{
-    /*
-    C based CUDA Kernel equivalent of mat2diagh.
-    Return lower diagonal format for skew hermitian matrix W.
+tridiag_source = pkgutil.get_data(__package__,'tridiag.cu')
+tridiag_module = cp.RawModule(code=tridiag_source.decode('utf-8'))
 
-    Parameters
-    ----------
-    lowdiag_matrix : complex<double>*: size (N//2+1)* N
-        Lower diagonal form output
-    dense_matrix :  const complex<double>*: size N * N
-        Dense skew hermitian input matrix.
+del tridiag_source
 
-    Returns
-    -------
-    void
-    */
+# Get non interleaved kernels, not needed for non-tf 
+#mat2diagh_ker = tridiag_module.get_function('mat2diagh')
+#diagh2mat_ker = tridiag_module.get_function('diagh2mat')
 
-    unsigned int x_tridiag = blockDim.x * blockIdx.x + threadIdx.x;
-    unsigned int y_tridiag = blockDim.y * blockIdx.y + threadIdx.y;
+# Kernels for reformating skewhermitian matrix into interleaved format
+mat2diagh_interleaved_ker = tridiag_module.get_function('mat2diagh_interleaved')
+diagh2mat_interleaved_ker = tridiag_module.get_function('diagh2mat_interleaved')
 
-    int x_dense;
-    int y_dense;
+# Tridiagonal solvers
+ker_tridiag_solve = tridiag_module.get_function('solve_tridiag_skewh_cached')
+ker_tridiag_solve_lessmemory = tridiag_module.get_function('solve_tridiag_skewh_lessmemory')
 
-    if ((x_tridiag < N) && (y_tridiag < (int)(N/2) + 1))
-    {
-        if( x_tridiag > N-y_tridiag-1){
-            x_dense = x_tridiag - (N - y_tridiag);
-            y_dense = x_dense + N - y_tridiag;
-        }   
-        else {
-            x_dense = x_tridiag;
-            y_dense = x_dense + y_tridiag;
-        }
-            
-        lowdiag_matrix[x_tridiag + y_tridiag*N] = dense_matrix[x_dense + y_dense*N];
-    }
-}
-
-__global__ void diagh2mat(complex<double>* dense_matrix, const complex<double>* lowdiag_matrix,\
-                        unsigned int N) 
-{
-    /*
-    C based CUDA Kernel equivalent of diagh2mat.
-    Gives skewhermitian matrix W from lower diagonal format.
-
-
-    Parameters
-    ----------
-    dense_matrix :  complex<double>*: size N * N
-        Dense skew hermitian output matrix.
-    lowdiag_matrix : const complex<double>*: size (N//2+1)* N
-        Lower diagonal form input
-    N : unsigned int,
-        Dimension of output matrix
-
-    Returns
-    -------
-    void
-    */
-
-    unsigned int x_tridiag = blockDim.x * blockIdx.x + threadIdx.x;
-    unsigned int y_tridiag = blockDim.y * blockIdx.y + threadIdx.y;
-
-    int x_dense;
-    int y_dense;
-
-    if ((x_tridiag < N) && (y_tridiag < (int)(N/2) + 1))
-    {
-        if( x_tridiag > N-y_tridiag-1){
-            x_dense = x_tridiag - (N - y_tridiag);
-            y_dense = x_dense + N - y_tridiag;
-        }   
-        else {
-            x_dense = x_tridiag;
-            y_dense = x_dense + y_tridiag;
-        }
-            
-        dense_matrix[x_dense + y_dense*N] = lowdiag_matrix[x_tridiag + y_tridiag*N];
-        dense_matrix[y_dense + x_dense*N] = -conj(lowdiag_matrix[x_tridiag + y_tridiag*N]);
-    }
-}
-}
-'''
-
-module = cp.RawModule(code=mat_tofrom_diag_module)
-mat2diagh_ker = module.get_function('mat2diagh')
-diagh2mat_ker = module.get_function('diagh2mat')
-
-def mat2diagh_cp(lowdiag,dense,N):
+def mat2diagh_interleaved_cp(lowdiag,dense,N):
 
     # Wrapper for mat2diagh CUDA kernel
     # Simple grid and block size
 
     grid_dim = N//44 + 1
-    block_dim_x = 44
-    block_dim_y = 23
+    block_dim_x = 23
+    block_dim_y = 44
 
-    mat2diagh_ker((grid_dim,grid_dim),(block_dim_x,block_dim_y),(lowdiag,dense,N))
+    mat2diagh_interleaved_ker((grid_dim,grid_dim),(block_dim_x,block_dim_y),(lowdiag,dense,N))
     #cp.cuda.runtime.deviceSynchronize()
 
     return 0
 
 
-def diagh2mat_cp(dense,lowdiag,N):
+def diagh2mat_interleaved_cp(dense,lowdiag,N):
 
     # Wrapper for mat2diagh CUDA kernel
     # Simple grid and block size
 
     grid_dim = N//44 + 1
-    block_dim_x = 44
-    block_dim_y = 23
+    block_dim_x = 23
+    block_dim_y = 44
 
-    diagh2mat_ker((grid_dim,grid_dim),(block_dim_x,block_dim_y),(dense,lowdiag,N))
+    diagh2mat_interleaved_ker((grid_dim,grid_dim),(block_dim_x,block_dim_y),(dense,lowdiag,N))
     #cp.cuda.runtime.deviceSynchronize()
 
     return 0
 
-def laplacian_cp(N, bc=False):
+def tridiag_solve(N, lap, Wdiagh, Pdiagh, gamma_tmp):
+    grid_dim = N//640 + 1
+    block_dim_x = 640
+
+    ker_tridiag_solve((grid_dim,),(block_dim_x,),(N, lap , Wdiagh, Pdiagh, gamma_tmp))
+
+def tridiag_solve_lessmemory(N, lap, Wdiagh, Pdiagh):
+    grid_dim = N//640 + 1
+    block_dim_x = 640
+
+    ker_tridiag_solve_lessmemory((grid_dim,),(block_dim_x,),(N, lap , Wdiagh, Pdiagh))
+
+
+##### -------------- Interleaved using kernel ------------ ###
+
+def laplacian_interleaved_cp(N, bc=False):
     """
     Return quantized laplacian (as a tridiagonal laplacian).
 
@@ -153,65 +84,16 @@ def laplacian_cp(N, bc=False):
     -------
     lap : ndarray(shape=(2, N*(N+1)/2), dtype=flaot)
     """
-    global _tridiagonal_laplacian_cp_cache
+    global _tridiagonal_laplacian_interleaved_cp_cache
 
-    if (N, bc) not in _tridiagonal_laplacian_cp_cache:
-        lap = compute_tridiagonal_laplacian_cp(N, bc=bc)
-        _tridiagonal_laplacian_cp_cache[(N, bc)] = lap
+    if (N, bc) not in _tridiagonal_laplacian_interleaved_cp_cache:
+        lap = compute_tridiagonal_laplacian_interleaved_cp(N, bc=bc)
+        _tridiagonal_laplacian_interleaved_cp_cache[(N, bc)] = lap
 
-    return _tridiagonal_laplacian_cp_cache[(N, bc)]
-
-def dot_tridiagonal_cp(lap, P):
-    """
-    Dot product for tridiagonal operator.
-
-    Parameters
-    ----------
-    lap: cdarray(shape(N//2+1, 2, N), dtype=complex128)
-        Tridiagonal operator (typically laplacian).
-    P: cdarray(shape=(N,N), dtype=complex128)
-        Input matrix.
-
-    Returns
-    -------
-    W: ndarray(shape=(N,N), dtype=complex)
-        Output matrix.
-    """
-    N = P.shape[0]
-    W = cp.zeros_like(P)
-    Pdiagh = cp.empty((N//2+1,N),dtype='complex128')
-    mat2diagh_cp(Pdiagh,P,N)
-
-    Wdiagh = lap[:, 1, :]*Pdiagh
-    Wdiagh[:, 1:] += lap[:, 0, :-1]*Pdiagh[:, :-1]
-    Wdiagh[:, :-1] += lap[:, 0, :-1]*Pdiagh[:, 1:]
-
-    diagh2mat_cp(W,Wdiagh,N)
-
-    return W
-
-def laplace_cp(P):
-    """
-    Return quantized laplacian applied to stream function `P`.
-
-    Parameters
-    ----------
-    P: ndarray(shape=(N, N), dtype=complex)
-
-    Returns
-    -------
-    W: ndarray(shape=(N, N), dtype=complex)
-    """
-    N = P.shape[0]
-    lap = laplacian_cp(N)
-
-    # Apply dot product
-    W = dot_tridiagonal_cp(lap, P)
-
-    return W
+    return _tridiagonal_laplacian_interleaved_cp_cache[(N, bc)]
 
 
-def solve_tridiagonal_cp(lap, W, P, Wdiagh):
+def solve_tridiagonal_interleaved_cp(lap, W, P, Wdiagh, Pdiagh, gamma_tmp):
     """
     Function for solving the quantized
     Poisson equation (or more generally the equation defined by
@@ -220,7 +102,7 @@ def solve_tridiagonal_cp(lap, W, P, Wdiagh):
 
     Parameters
     ----------
-    lap: ndarray(shape=(N//2+1, 3, N), dtype=float)
+    lap: ndarray(shape=(2, N, N//2+1), dtype=float)
         Tridiagonal laplacian.
     W: ndarray(shape=(N, N), dtype=complex)
         Input matrix.
@@ -235,31 +117,73 @@ def solve_tridiagonal_cp(lap, W, P, Wdiagh):
     
     # Convert laplacian to tensorflow tensor with dlpack
     # Should point to same memory adress as cupy array
-    lap_tf = tf.experimental.dlpack.from_dlpack(lap.toDlpack())
 
     # Swap values into Wdiagh
     # Pass by reference faster than returning ?
-    mat2diagh_cp(Wdiagh,W,N)
+    mat2diagh_interleaved_cp(Wdiagh,W,N)
 
     # Convert to tensor
-    Wdiagh_tf = tf.experimental.dlpack.from_dlpack(Wdiagh.toDlpack())
 
     # For each double-tridiagonal, solve a tridiagonal system
     cp.cuda.runtime.deviceSynchronize()
-    Pdiagh = cp.from_dlpack(tf.experimental.dlpack.to_dlpack(tf.linalg.tridiagonal_solve(lap_tf, Wdiagh_tf, partial_pivoting = False)))
+    tridiag_solve(N,lap, Wdiagh, Pdiagh, gamma_tmp)
     cp.cuda.runtime.deviceSynchronize()
 
     # Make sure we preserve trace of W (corresponds to bc for laplacian)
-    trP = Pdiagh[0, :].sum()/N
-    Pdiagh[0, :] -= trP 
+    trP = Pdiagh[:, 0].sum()/N
+    Pdiagh[:, 0] -= trP 
 
     # Convert back to dense matrix
-    diagh2mat_cp(P,Pdiagh,N)
+    diagh2mat_interleaved_cp(P,Pdiagh,N)
 
-
-def compute_tridiagonal_laplacian_cp(N, bc=False):
+def solve_tridiagonal_interleaved_lessmemory_cp(lap, W, P, Wdiagh, Pdiagh):
     """
-    Compute tridiagonal laplacian.
+    Function for solving the quantized
+    Poisson equation (or more generally the equation defined by
+    the `lap` array). Uses NUMBA to accelerate the
+    tridiagonal solver calculations.
+
+    Parameters
+    ----------
+    lap: ndarray(shape=(2, N, N//2+1), dtype=float)
+        Tridiagonal laplacian.
+    W: ndarray(shape=(N, N), dtype=complex)
+        Input matrix.
+    P: ndarray(shape=(N, N), dtype=complex)
+        Output matrix.
+
+    Returns
+    -------
+    void 
+    """
+    N = W.shape[0]
+    
+    # Convert laplacian to tensorflow tensor with dlpack
+    # Should point to same memory adress as cupy array
+
+    # Swap values into Wdiagh
+    # Pass by reference faster than returning ?
+    mat2diagh_interleaved_cp(Wdiagh,W,N)
+
+    # Convert to tensor
+
+    # For each double-tridiagonal, solve a tridiagonal system
+    cp.cuda.runtime.deviceSynchronize()
+    tridiag_solve_lessmemory(N,lap, Wdiagh, Pdiagh)
+    cp.cuda.runtime.deviceSynchronize()
+
+    # Make sure we preserve trace of W (corresponds to bc for laplacian)
+    trP = Pdiagh[:, 0].sum()/N
+    Pdiagh[:, 0] -= trP 
+
+    # Convert back to dense matrix
+    diagh2mat_interleaved_cp(P,Pdiagh,N)
+
+
+
+def compute_tridiagonal_laplacian_interleaved_cp(N, bc=False):
+    """
+    Compute tridiagonal laplacian with interleaved elements
 
     Parameters
     ----------
@@ -270,68 +194,48 @@ def compute_tridiagonal_laplacian_cp(N, bc=False):
 
     Returns
     -------
-    lap: cparray, shape (N//2+1, 3, N)
-        Outer index: system for diagonal m and N-m.
-        Middle index: which diagonal, stored according to tensorflow format (0 upper, 1 main, 2 lower)
+    lap: float64 nparray, shape (2, N, N//2+1)
+        Outer index: diagonal index, 0 main diag, 1 lower
         Inner index: entries on the diagonals
+        Middle index: which diagonal, stored according to tensorflow format
+        
     """
 
     # Tensorflow needs same types on both sides of Ax=B, so lap is complex128
     # Tensorflow needs all 3 diagonals, so axis 1 has size = 3.
-    lap = np.zeros((N//2+1, 3, N), dtype=np.complex128)
+    ##lap = np.zeros((N//2+1, 3, N), dtype=np.complex128)
+    lap = np.zeros((2, N, N//2+1), dtype=np.float64)
     i_full = np.arange(N)
     for m in range(N//2+1):
 
         # Global diagonal m (of length N-m)
         i = i_full[:N - m]
-        lap[m, 1, 0:N - m] = -((N - 1)*(2*i + 1 + m) - 2*i*(i + m))
+        lap[0, 0:N - m, m] = -((N - 1)*(2*i + 1 + m) - 2*i*(i + m))
         i = i_full[1:N - m]
-        lap[m, 0, 0:N - m - 1] = np.sqrt(((i + m)*(N - i - m))*(i*(N - i)))
+        lap[1,0:N - m - 1,m] = np.sqrt(((i + m)*(N - i - m))*(i*(N - i)))
 
         # Global diagonal N-m (of length m)
         i = i_full[:m]
-        lap[m, 1, N - m:] = -((N - 1)*(2*i + 1 + N - m) - 2*i*(i + N - m))
+        lap[0, N - m:, m] = -((N - 1)*(2*i + 1 + N - m) - 2*i*(i + N - m))
         i = i_full[1:m]
-        lap[m, 0, N - m:-1] = np.sqrt(((i + N - m)*(m - i))*(i*(N - i)))
+        lap[1, N - m:-1, m] = np.sqrt(((i + N - m)*(m - i))*(i*(N - i)))
 
-        np.copyto(lap[m, 2, 1:],lap[m , 0, 0:-1])
 
     if bc:
-        lap[0, 1, 0] -= 0.5
+        lap[0, 0, 0] -= 0.5
         pass
 
     return lap
 
-def laplacian_cp(N, bc=False):
-    """
-    Return quantized laplacian (as a tridiagonal laplacian).
-
-    Parameters
-    ----------
-    N: int
-    bc: bool (optional)
-        Whether to include boundary conditions.
-
-    Returns
-    -------
-    lap : cparray(shape=(2, N*(N+1)/2), dtype=complex128)
-    """
-    global _tridiagonal_laplacian_cp_cache
-
-    if (N, bc) not in _tridiagonal_laplacian_cp_cache:
-        lap = compute_tridiagonal_laplacian_cp(N, bc=bc)
-        _tridiagonal_laplacian_cp_cache[(N, bc)] = lap
-
-    return _tridiagonal_laplacian_cp_cache[(N, bc)]
-
-class solve_poisson_cp:
+class solve_poisson_interleaved_cp:
     def __init__(self,N, bc = True) -> None:
         self.N = N
-        self.lap = cp.asarray(laplacian_cp(N, bc = bc))
-        self.Wdiagh = cp.empty((N//2+1,N),dtype='complex128')
-        #self.Pdiagh = cp.empty((N//2+1,N),dtype='complex128')
+        self.lap = cp.asarray(laplacian_interleaved_cp(N, bc = bc))
+        self.Wdiagh = cp.empty((N,N//2+1),dtype='complex128')
+        self.Pdiagh = cp.empty((N,N//2+1),dtype='complex128')
+        self.gamma_tmp = cp.empty((N,N//2+1),dtype='float64')
 
-    def __call__(self,W,P) -> None:
+    def solve_poisson(self,W,P) -> None:
         """
         Gives stream matrix `P` for `W`.
         #Return stream matrix `P` for `W`.
@@ -343,10 +247,38 @@ class solve_poisson_cp:
         Returns
         -------
         none
-        ##P: ndarray(shape=(N, N), dtype=complex)
+        ##P: ndarray(shape=(N, N), dtype
+        =complex)
         """
 
-        solve_tridiagonal_cp(self.lap, W, P, self.Wdiagh)
+        solve_tridiagonal_interleaved_cp(self.lap, W, P, self.Wdiagh, self.Pdiagh, self.gamma_tmp)
+
+class solve_poisson_interleaved_lessmemory_cp:
+    def __init__(self,N, bc = True) -> None:
+        self.N = N
+        self.lap = cp.asarray(laplacian_interleaved_cp(N, bc = bc))
+        self.Wdiagh = cp.empty((N,N//2+1),dtype='complex128')
+        self.Pdiagh = cp.empty((N,N//2+1),dtype='complex128')
+
+    def solve_poisson(self,W,P) -> None:
+        """
+        Gives stream matrix `P` for `W`.
+        #Return stream matrix `P` for `W`.
+
+        Parameters
+        ----------
+        W: ndarray(shape=(N, N), dtype=complex)
+
+        Returns
+        -------
+        none
+        ##P: ndarray(shape=(N, N), dtype
+        =complex)
+        """
+
+        solve_tridiagonal_interleaved_lessmemory_cp(self.lap, W, P, self.Wdiagh, self.Pdiagh)
+    
+# ----------- GPU Solver ---------------
 
 class isomp_gpu_skewherm_solver:
     
@@ -369,7 +301,7 @@ class isomp_gpu_skewherm_solver:
         self.Phalf = cp.zeros_like(self.W)
         self.PWcomm = cp.zeros_like(self.W)
     
-    def solve_step(self, h_W, stepsize=0.1, steps=5, hamiltonian=solve_poisson_cp,
+    def solve_step(self, h_W, stepsize=0.1, steps=5, hamiltonian=solve_poisson_interleaved_cp,
                        tol=1e-8, maxit=5, verbatim=True, skewherm_proj_freq=3000, forcing=None) -> np.ndarray:
         """
         Time-stepping by isospectral midpoint second order method for skew-Hermitian W.

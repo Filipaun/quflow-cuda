@@ -11,7 +11,7 @@ do_gpu = True
 do_cpu = False
 
 # Size of matrices
-N_samples = np.array([1500])
+N_samples = np.array([400])
 success_check = [[False for x in N_samples] for y in range(2)]
 timings = np.zeros((2,len(N_samples)),dtype = float)
 
@@ -47,8 +47,8 @@ for (i,N) in enumerate(N_samples):
 
         W_gpu = W0.copy()
         solver_gpu = qf.gpu.isomp_gpu_skewherm_solver(W0)
-        ham = qf.gpu.solve_poisson_cp(N)
-        method_kwargs = {"hamiltonian": ham, "verbatim":False, "maxit":7, "tol":1e-8}
+        ham = qf.gpu.solve_poisson_interleaved_cp(N)
+        method_kwargs = {"hamiltonian": ham.solve_poisson, "verbatim":False, "maxit":7, "tol":1e-8}
 
         start_time_ns = time_pack.time_ns()
 
