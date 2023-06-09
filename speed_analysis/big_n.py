@@ -7,7 +7,10 @@ import time as time_pack
 
 # ------------------- DEFAULT PARAMETERS ----------------- #
 # Size of matrices
-default_N = 2000
+
+default_N = 2048
+#default_N = 4096  # <---- Allgedly needs 171 GiB of memory for computing basis
+
 # Time parameters
 default_time = 60.0 # in second
 default_inner_time = 0.5 # in seconds
@@ -64,8 +67,6 @@ def main() -> None:
     W0 = qf.shr2mat(omega0, N=N)  # Convert SH coefficients to matrix
     shr2mat_elapsed_time_ns = (time_pack.time_ns() - shr2mat_start_time_ns)*1e-9
 
-    W0_cp = cp.array(W0)        # Move W0 matrix to GPU
-
     filename_gpu = "gpu_test_sim_N_{}.hdf5".format(str(N))
 
     # Callback data object
@@ -85,10 +86,10 @@ def main() -> None:
     # Select solver
     # The cupy based isomp solver and poisson solver needs to be initialized 
     method = qf.gpu.isomp_gpu_skewherm_solver(W)
-    ham = qf.gpu.solve_poisson_cp(N)
+    ham = qf.gpu.solve_poisson_interleaved_cp(N)
 
     # Method kwargs are the same, since we still use the same qf.solve from dynamics.py
-    method_kwargs = {"hamiltonian": ham, "verbatim":False, "maxit":7, "tol":1e-8}
+    method_kwargs = {"hamiltonian": ham.solve_poisson, "verbatim":False, "maxit":7, "tol":1e-8}
 
     # Time sim
     sim_start_time_ns = time_pack.time_ns()
