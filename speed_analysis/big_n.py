@@ -12,9 +12,9 @@ default_N = 2048
 #default_N = 4096  # <---- Allgedly needs 171 GiB of memory for computing basis
 
 # Time parameters
-default_time = 60.0 # in second
+default_time = 60 # in second
 default_inner_time = 0.5 # in seconds
-default_qstepsize = 0.2 # in qtime
+default_qstepsize = 0.25 # in qtime
 
 
 def init_argparse() -> argparse.ArgumentParser:
@@ -29,10 +29,10 @@ def init_argparse() -> argparse.ArgumentParser:
                         default=[default_time],
                         help='Time in seconds')
     parser.add_argument('-it','--inner-time', dest='inner_time', type=float, nargs=1,
-                        default=[default_N],
+                        default=[default_inner_time],
                         help='Inner time in second')
     parser.add_argument('-qs','--qstepsize', dest='qstepsize', type=float, nargs=1,
-                        default=[default_N],
+                        default=[default_qstepsize],
                         help='Qtime of steps')
 
     return parser
@@ -57,6 +57,10 @@ def main() -> None:
     qstepsize = args.qstepsize[0]
 
     print(args)
+
+    #dt = qf.qtime2seconds(qstepsize, N)
+    #print("The physical stepsize is {:.3e} seconds.".format(dt))
+    #print("{} steps per output, in total {} steps.".format(round(inner_time/dt), round(time/dt)))
 
     # Simulation settings
     lmax = 10  # How many spherical harmonics (SH) coefficients to include
