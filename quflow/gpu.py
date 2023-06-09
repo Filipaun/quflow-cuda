@@ -97,7 +97,7 @@ def solve_tridiagonal_interleaved_cp(lap, W, P, Wdiagh, Pdiagh, gamma_tmp):
     """
     Function for solving the quantized
     Poisson equation (or more generally the equation defined by
-    the `lap` array). Uses NUMBA to accelerate the
+    the `lap` array). Uses Tensorflow to accelerate the
     tridiagonal solver calculations.
 
     Parameters
@@ -107,7 +107,9 @@ def solve_tridiagonal_interleaved_cp(lap, W, P, Wdiagh, Pdiagh, gamma_tmp):
     W: ndarray(shape=(N, N), dtype=complex)
         Input matrix.
     P: ndarray(shape=(N, N), dtype=complex)
-        Output matrix.
+        "Output" matrix.
+    Wdiagh: ndarray(shape=(N//2+1, N))
+        Preallocated Lower diagonal form
 
     Returns
     -------
