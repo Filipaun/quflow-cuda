@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 def kron_delta(i,j):
     if i == j:
@@ -15,8 +16,34 @@ def lap(m,N):
 
     return lap_mat
 
-m = 0
-my_lap = lap(m,500)
-print(my_lap[1,2])
-print(my_lap[0,1]+my_lap[1,1]+my_lap[1,2])
-print(np.amax(my_lap))
+def lap2(N,i_1,i_2,j_1,j_2):
+    s = (N-1)/2
+    #lap_mat = np.zeros((N-m,N-m))
+    i_1 -= (s+1)
+    i_2 -= (s+1)
+    j_1 -= (s+1)
+    j_2 -= (s+1)
+
+    lap_val = 0
+    if kron_delta(i_1,j_1)*kron_delta(i_2,j_2) == 1:
+        print("main diag")
+        lap_val += 2*(s*(s+1)-i_1*i_2)
+    elif kron_delta(i_1+1,j_1)*kron_delta(i_2+1,j_2) == 1:
+        print("lower diag")
+        lap_val -= np.sqrt(s*(s+1)-i_1*(i_1+1))*np.sqrt(s*(s+1)-i_2*(i_2+1))
+    elif kron_delta(i_1-1,j_1)*kron_delta(i_2-1,j_2) == 1:
+        print("upper diag")
+        lap_val -= np.sqrt(s*(s+1)-i_1*(i_1-1))*np.sqrt(s*(s+1)-i_2*(i_2-1))
+
+    return lap_val
+
+import quflow as qf
+np.set_printoptions(precision=3)
+N = 4  # Size of matrices
+lmax = 10  # How many spherical harmonics (SH) coefficients to include
+#np.random.seed(42)  # For reproducability
+omega0 = np.zeros(N**2) # Array with SH coefficients
+omega0[0] = 1  
+W0 = qf.shr2mat(omega0, N=N)
+qf.plot2(omega0)
+plt.show()

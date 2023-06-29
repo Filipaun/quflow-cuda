@@ -6,3 +6,4 @@ quflow/laplacian/__pycache__
 .eggs
 quflow.egg-info
 .venv
+.new-venv

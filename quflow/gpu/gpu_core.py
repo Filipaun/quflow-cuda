@@ -3,39 +3,78 @@ import cupy as cp
 import pkgutil
 
 _tridiagonal_laplacian_interleaved_cp_cache = dict()
+_device_sm_count = cp.cuda.runtime.getDeviceProperties(0)['multiProcessorCount']
+_warp_size = cp.cuda.runtime.getDeviceProperties(0)['warpSize']
 
-def check_version():  
+def load_kernel() -> None:
+    """
+    Initializer for imported kernels and device dependent global variables.
+    """
+
+    # Kernels for reformating skewhermitian matrix into interleaved format
+    global mat2diagh_interleaved_ker
+    global diagh2mat_interleaved_ker
+
+    # Tridiagonal solvers
+    global ker_tridiag_solve
+    global ker_tridiag_solve_lessmemory
+
+    # Multiprocessor count
+    global _device_sm_count
+    #_device_sm_count = cp.cuda.Device(0).attributes[""]
+
+    # Get non interleaved kernels, not needed for non-tf 
+    #global mat2diagh_ker = tridiag_module.get_function('mat2diagh')
+    #global diagh2mat_ker = tridiag_module.get_function('diagh2mat')
+
+    # Import cuda source code
+    tridiag_source = pkgutil.get_data(__package__,'tridiag.cu')
+    tridiag_module = cp.RawModule(code=tridiag_source.decode('utf-8'))
+    del tridiag_source
+
+    # Get non interleaved kernels, not needed for non-tf 
+    #mat2diagh_ker = tridiag_module.get_function('mat2diagh')
+    #diagh2mat_ker = tridiag_module.get_function('diagh2mat')
+
+    # Kernels for reformating skewhermitian matrix into interleaved format
+    mat2diagh_interleaved_ker = tridiag_module.get_function('mat2diagh_interleaved')
+    diagh2mat_interleaved_ker = tridiag_module.get_function('diagh2mat_interleaved')
+
+    # Tridiagonal solvers
+    ker_tridiag_solve = tridiag_module.get_function('solve_tridiag_skewh_cached')
+    ker_tridiag_solve_lessmemory = tridiag_module.get_function('solve_tridiag_skewh_lessmemory')
+
+# Load kernels on import
+load_kernel()
+
+def print_info():
+    """
+    Prints information about Cupy and device.
+
+    Useful for checking if the right device is found
+    """
     print(f"CuPy version: {cp.__version__}")
+    device_count = cp.cuda.runtime.getDeviceCount()
 
-# Import cuda source code
+    for c in range(device_count):
+        current_device_prop = cp.cuda.runtime.getDeviceProperties(c)
+        print(f"Device {c}: {str(current_device_prop['name'])}:")
+        print(f"\tmultiprocessor count: {current_device_prop['multiProcessorCount']}")
 
-tridiag_source = pkgutil.get_data(__package__,'tridiag.cu')
-tridiag_module = cp.RawModule(code=tridiag_source.decode('utf-8'))
-
-del tridiag_source
-
-# Get non interleaved kernels, not needed for non-tf 
-#mat2diagh_ker = tridiag_module.get_function('mat2diagh')
-#diagh2mat_ker = tridiag_module.get_function('diagh2mat')
-
-# Kernels for reformating skewhermitian matrix into interleaved format
-mat2diagh_interleaved_ker = tridiag_module.get_function('mat2diagh_interleaved')
-diagh2mat_interleaved_ker = tridiag_module.get_function('diagh2mat_interleaved')
-
-# Tridiagonal solvers
-ker_tridiag_solve = tridiag_module.get_function('solve_tridiag_skewh_cached')
-ker_tridiag_solve_lessmemory = tridiag_module.get_function('solve_tridiag_skewh_lessmemory')
 
 def mat2diagh_interleaved_cp(lowdiag,dense,N):
 
     # Wrapper for mat2diagh CUDA kernel
     # Simple grid and block size
 
-    grid_dim = N//44 + 1
-    block_dim_x = 23
-    block_dim_y = 44
+    
+    block_dim_x = 32
+    block_dim_y = 20
 
-    mat2diagh_interleaved_ker((grid_dim,grid_dim),(block_dim_x,block_dim_y),(lowdiag,dense,N))
+    grid_dim_x = ((N//2) + 1) // block_dim_x + 1
+    grid_dim_y = (N) // block_dim_y + 1
+
+    mat2diagh_interleaved_ker((grid_dim_x,grid_dim_y),(block_dim_x,block_dim_y),(lowdiag,dense,N))
     #cp.cuda.runtime.deviceSynchronize()
 
     return 0
@@ -46,24 +85,29 @@ def diagh2mat_interleaved_cp(dense,lowdiag,N):
     # Wrapper for mat2diagh CUDA kernel
     # Simple grid and block size
 
-    grid_dim = N//44 + 1
-    block_dim_x = 23
-    block_dim_y = 44
+    
+    block_dim_x = 32
+    block_dim_y = 20
 
-    diagh2mat_interleaved_ker((grid_dim,grid_dim),(block_dim_x,block_dim_y),(dense,lowdiag,N))
+    grid_dim_x = ((N//2) + 1) // block_dim_x + 1
+    grid_dim_y = (N) // block_dim_y + 1
+
+    diagh2mat_interleaved_ker((grid_dim_x,grid_dim_y),(block_dim_x,block_dim_y),(dense,lowdiag,N))
     #cp.cuda.runtime.deviceSynchronize()
 
     return 0
 
-def tridiag_solve(N, lap, Wdiagh, Pdiagh, gamma_tmp):
-    grid_dim = N//640 + 1
-    block_dim_x = 640
+def tridiag_solve(N, lap, Wdiagh, Pdiagh, gamma_tmp, block_size = 64):
+
+    block_dim_x = block_size
+    grid_dim = N//block_dim_x + 1
 
     ker_tridiag_solve((grid_dim,),(block_dim_x,),(N, lap , Wdiagh, Pdiagh, gamma_tmp))
 
-def tridiag_solve_lessmemory(N, lap, Wdiagh, Pdiagh):
-    grid_dim = N//640 + 1
-    block_dim_x = 640
+def tridiag_solve_lessmemory(N, lap, Wdiagh, Pdiagh, block_size = 64):
+    block_dim_x = block_size
+    grid_dim = N//block_dim_x + 1
+    
 
     ker_tridiag_solve_lessmemory((grid_dim,),(block_dim_x,),(N, lap , Wdiagh, Pdiagh))
 
@@ -93,7 +137,7 @@ def laplacian_interleaved_cp(N, bc=False):
     return _tridiagonal_laplacian_interleaved_cp_cache[(N, bc)]
 
 
-def solve_tridiagonal_interleaved_cp(lap, W, P, Wdiagh, Pdiagh, gamma_tmp):
+def solve_tridiagonal_interleaved_cp(lap, W, P, Wdiagh, Pdiagh, gamma_tmp, block_size):
     """
     Function for solving the quantized
     Poisson equation (or more generally the equation defined by
@@ -127,9 +171,7 @@ def solve_tridiagonal_interleaved_cp(lap, W, P, Wdiagh, Pdiagh, gamma_tmp):
     # Convert to tensor
 
     # For each double-tridiagonal, solve a tridiagonal system
-    cp.cuda.runtime.deviceSynchronize()
-    tridiag_solve(N,lap, Wdiagh, Pdiagh, gamma_tmp)
-    cp.cuda.runtime.deviceSynchronize()
+    tridiag_solve(N,lap, Wdiagh, Pdiagh, gamma_tmp,block_size)
 
     # Make sure we preserve trace of W (corresponds to bc for laplacian)
     trP = Pdiagh[:, 0].sum()/N
@@ -138,7 +180,7 @@ def solve_tridiagonal_interleaved_cp(lap, W, P, Wdiagh, Pdiagh, gamma_tmp):
     # Convert back to dense matrix
     diagh2mat_interleaved_cp(P,Pdiagh,N)
 
-def solve_tridiagonal_interleaved_lessmemory_cp(lap, W, P, Wdiagh, Pdiagh):
+def solve_tridiagonal_interleaved_lessmemory_cp(lap, W, P, Wdiagh, Pdiagh, block_size):
     """
     Function for solving the quantized
     Poisson equation (or more generally the equation defined by
@@ -170,9 +212,7 @@ def solve_tridiagonal_interleaved_lessmemory_cp(lap, W, P, Wdiagh, Pdiagh):
     # Convert to tensor
 
     # For each double-tridiagonal, solve a tridiagonal system
-    cp.cuda.runtime.deviceSynchronize()
-    tridiag_solve_lessmemory(N,lap, Wdiagh, Pdiagh)
-    cp.cuda.runtime.deviceSynchronize()
+    tridiag_solve_lessmemory(N,lap, Wdiagh, Pdiagh, block_size)
 
     # Make sure we preserve trace of W (corresponds to bc for laplacian)
     trP = Pdiagh[:, 0].sum()/N
@@ -237,7 +277,9 @@ class solve_poisson_interleaved_cp:
         self.Pdiagh = cp.empty((N,N//2+1),dtype='complex128')
         self.gamma_tmp = cp.empty((N,N//2+1),dtype='float64')
 
-    def solve_poisson(self,W,P) -> None:
+        self.default_block_size = max(min(int(np.floor((N//_device_sm_count)/_warp_size))*_warp_size,1024),32)
+
+    def solve_poisson(self, W, P, block_size = None) -> None:
         """
         Gives stream matrix `P` for `W`.
         #Return stream matrix `P` for `W`.
@@ -253,7 +295,10 @@ class solve_poisson_interleaved_cp:
         =complex)
         """
 
-        solve_tridiagonal_interleaved_cp(self.lap, W, P, self.Wdiagh, self.Pdiagh, self.gamma_tmp)
+        if block_size is None:
+            solve_tridiagonal_interleaved_cp(self.lap, W, P, self.Wdiagh, self.Pdiagh, self.gamma_tmp, self.default_block_size)
+        else:
+            solve_tridiagonal_interleaved_cp(self.lap, W, P, self.Wdiagh, self.Pdiagh, self.gamma_tmp, block_size)
 
 class solve_poisson_interleaved_lessmemory_cp:
     def __init__(self,N, bc = True) -> None:
@@ -262,6 +307,8 @@ class solve_poisson_interleaved_lessmemory_cp:
         self.Wdiagh = cp.empty((N,N//2+1),dtype='complex128')
         self.Pdiagh = cp.empty((N,N//2+1),dtype='complex128')
 
+        self.default_block_size = max(min(int(np.floor((N//_device_sm_count)/_warp_size))*_warp_size,1024),32)
+
     def solve_poisson(self,W,P) -> None:
         """
         Gives stream matrix `P` for `W`.
@@ -278,9 +325,9 @@ class solve_poisson_interleaved_lessmemory_cp:
         =complex)
         """
 
-        solve_tridiagonal_interleaved_lessmemory_cp(self.lap, W, P, self.Wdiagh, self.Pdiagh)
+        solve_tridiagonal_interleaved_lessmemory_cp(self.lap, W, P, self.Wdiagh, self.Pdiagh, block_size= self.default_block_size)
     
-# ----------- GPU Solver ---------------
+# ----------- GPU Isomp Solver ---------------
 
 class isomp_gpu_skewherm_solver:
     
@@ -394,7 +441,6 @@ class isomp_gpu_skewherm_solver:
 
             # Update W
             self.W += 2.0*self.PWcomm
-            cp.cuda.runtime.deviceSynchronize()
             # Check if projection needed
             if k+1 % skewherm_proj_freq == 0:
                 self.W /= 2.0
@@ -405,6 +451,6 @@ class isomp_gpu_skewherm_solver:
         if verbatim:
             print("Average number of iterations per step: {:.2f}".format(total_iterations/steps))
 
-        cp.cuda.runtime.deviceSynchronize()
+        
         self.W.get(out = h_W)
         return h_W

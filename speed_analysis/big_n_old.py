@@ -2,6 +2,7 @@ import numpy as np
 import cupy as cp
 import h5py
 import quflow as qf
+import argparse
 import time as time_pack
 
 # ---------- Plotting ------------ #
@@ -9,22 +10,62 @@ import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')
 
-# ------------------- PARAMETERS ----------------- #
+# ------------------- DEFAULT PARAMETERS ----------------- #
 # Size of matrices
 
-N = 2048
-#N = 4096  # <---- Allgedly needs 171 GiB of memory for computing basis
+default_N = 2048
+#default_N = 4096  # <---- Allgedly needs 171 GiB of memory for computing basis
 
 # Time parameters
-time = 60 # in second
-inner_time = 0.5 # in seconds
-qstepsize = 0.25 # in qtime
+default_time = 60 # in second
+default_inner_time = 0.5 # in seconds
+default_qstepsize = 0.25 # in qtime
+
+
+def init_argparse() -> argparse.ArgumentParser:
+
+    parser = argparse.ArgumentParser(
+        description="Runs Quflow-cuda script"
+    )
+    parser.add_argument('-n','--matrix-dim-n', dest='N', type=int, nargs=1,
+                        default=[default_N],
+                        help='Dimension N of matrix W')
+    parser.add_argument('-t','--time', dest='time', type=float, nargs=1,
+                        default=[default_time],
+                        help='Time in seconds')
+    parser.add_argument('-it','--inner-time', dest='inner_time', type=float, nargs=1,
+                        default=[default_inner_time],
+                        help='Inner time in second')
+    parser.add_argument('-qs','--qstepsize', dest='qstepsize', type=float, nargs=1,
+                        default=[default_qstepsize],
+                        help='Qtime of steps')
+
+    return parser
 
 def main() -> None:
     """ 
     Runs a simulation with quflow using GPU
-
+    
+    When running from terminal the file has options:
+        -n: int, dimension of W,
+        -t: float, time duration of sim,
+        -it: time step of simulation,
+        -qs: qtime of steps
     """
+    # ------------------- ARGPARSE ----------------- #
+    parser = init_argparse()
+    args = parser.parse_args()
+
+    N = args.N[0]
+    time = args.time[0]
+    inner_time = args.inner_time[0]
+    qstepsize = args.qstepsize[0]
+
+    print(args)
+
+    #dt = qf.qtime2seconds(qstepsize, N)
+    #print("The physical stepsize is {:.3e} seconds.".format(dt))
+    #print("{} steps per output, in total {} steps.".format(round(inner_time/dt), round(time/dt)))
 
     # Simulation settings
     lmax = 10  # How many spherical harmonics (SH) coefficients to include
@@ -53,8 +94,8 @@ def main() -> None:
 
     # Select solver
     # The cupy based isomp solver and poisson solver needs to be initialized 
-    method = qf.gpu.gpu_core.isomp_gpu_skewherm_solver(W)
-    ham = qf.gpu.gpu_core.solve_poisson_interleaved_cp(N)
+    method = qf.gpu.isomp_gpu_skewherm_solver(W)
+    ham = qf.gpu.solve_poisson_interleaved_cp(N)
 
     # Method kwargs are the same, since we still use the same qf.solve from dynamics.py
     method_kwargs = {"hamiltonian": ham.solve_poisson, "verbatim":False, "maxit":7, "tol":1e-8}
@@ -74,14 +115,13 @@ def main() -> None:
     with open("elapsed_time.txt",'w') as time_file:
         time_file.write(f"{shr2mat_elapsed_time_ns}\n{sim_elapsed_time_ns}")
 
-        
+        # Plot last state
     with h5py.File(filename_gpu, 'r') as data:
         plt.figure()
         omega = data['state'][0]
         qf.plot2(omega, projection='hammer', N=520, colorbar=True)
         plt.savefig(f"sim_{N}_initial.pdf", bbox_inches='tight')
 
-        # Plot last state
         plt.figure()
         omega = data['state'][-1]
         qf.plot2(omega, projection='hammer', N=520, colorbar=True)
