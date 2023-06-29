@@ -35,11 +35,13 @@ def mat2diagh_cp(lowdiag,dense,N):
     # Wrapper for mat2diagh CUDA kernel
     # Simple grid and block size
 
-    grid_dim = N//44 + 1
-    block_dim_x = 44
-    block_dim_y = 23
+    block_dim_x = 32
+    block_dim_y = 20
 
-    mat2diagh_ker((grid_dim,grid_dim),(block_dim_x,block_dim_y),(lowdiag,dense,N))
+    grid_dim_x = (N) % block_dim_x + 1
+    grid_dim_y = ((N//2) + 1) % block_dim_y + 1
+
+    mat2diagh_ker((grid_dim_x,grid_dim_y),(block_dim_x,block_dim_y),(lowdiag,dense,N))
     #cp.cuda.runtime.deviceSynchronize()
 
     return 0
@@ -50,11 +52,13 @@ def diagh2mat_cp(dense,lowdiag,N):
     # Wrapper for mat2diagh CUDA kernel
     # Simple grid and block size
 
-    grid_dim = N//44 + 1
-    block_dim_x = 44
-    block_dim_y = 23
+    block_dim_x = 32
+    block_dim_y = 20
 
-    diagh2mat_ker((grid_dim,grid_dim),(block_dim_x,block_dim_y),(dense,lowdiag,N))
+    grid_dim_x = (N) % block_dim_x + 1
+    grid_dim_y = ((N//2) + 1) % block_dim_y + 1
+
+    diagh2mat_ker((grid_dim_x,grid_dim_y),(block_dim_x,block_dim_y),(dense,lowdiag,N))
     #cp.cuda.runtime.deviceSynchronize()
 
     return 0

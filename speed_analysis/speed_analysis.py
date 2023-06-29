@@ -11,7 +11,7 @@ do_gpu = True
 do_cpu = False
 
 # Size of matrices
-N_samples = np.array([400])
+N_samples = np.array([100])
 success_check = [[False for x in N_samples] for y in range(2)]
 timings = np.zeros((2,len(N_samples)),dtype = float)
 
@@ -81,7 +81,7 @@ for (i,N) in enumerate(N_samples):
 
     # -------- #
 
-    with open("speed_test_gpu.json","w") as outfile:
+    with open("speed_test_new_gpu.json","w") as outfile:
         #Update timings
         test_data["timings"] = timings.tolist()
         test_data["success"] = success_check

@@ -29,7 +29,24 @@ def compute_direct_laplacian(N, bc=False):
 
     Returns
     -------
-    lap: ndarray
+    lap: ndarray array, shape (2, N*(N+1)//2)
+        lap[0] : off diagonal entries
+            The values of the m off diagonals are stacked in 1D format,
+            beginning with m=0 iterating up to m = N-2.
+            Each diagonal starts with a zero.
+            The following slice yields diagonal m:
+                n = N - m
+                start_ind_val = N*(N+1)//2 - n*(n+1)//2
+                lap[0, start_ind:start_ind+n]
+            
+        lap[1] : main diagonal entries
+            The values of the m main diagonals are stacked in 1D format,
+            beginning with the m=0, iterating up to m = N-1.
+        
+        
+
+        
+
     """
     s = (N - 1)/2
     mvals = np.linspace(-s, s, N)
