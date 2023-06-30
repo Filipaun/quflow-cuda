@@ -4,13 +4,6 @@ import h5py
 import quflow as qf
 import time as time_pack
 
-# ---------- Plotting ------------ #
-import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.use('Agg')
-
-
-
 def main() -> None:
     """ 
     Runs a simulation with quflow using GPU
@@ -19,21 +12,22 @@ def main() -> None:
     # ------------------- PARAMETERS ----------------- #
     
     # Size of matrices
-    N = 2048
-    #N = 4096  # <---- Allgedly needs 171 GiB of memory for computing basis
+    N = 1024
+    #N = 2048   # <---- Needs 22 GiB of CPU memory for computing basis
+    #N = 4096  # <---- Allgedly needs 171 GiB of CPU memory for computing basis
 
-    # Time parameters
-    time = 60 # in second
-    inner_time = 0.5 # in seconds
-    qstepsize = 0.25 # in qtime
-    """
-    # Alternative time parameters
-    time = 200 # in second
-    inner_time = 2 # in seconds
-    qstepsize = 1 # in qtime
-    """
-    # Plot param
-    plot_first_last_state = False
+    time_params_1 = False
+    time_params_2 = True
+
+    if time_params_1:
+        # Time parameters
+        time = 60 # in second
+        inner_time = 0.5 # in seconds
+        qstepsize = 0.25 # in qtime
+    elif time_params_2:
+        time = 200 # in second
+        inner_time = 2 # in seconds
+        qstepsize = 1 # in qtime
 
     # ----------------------------------------------- #
 
@@ -47,7 +41,7 @@ def main() -> None:
     W0 = qf.shr2mat(omega0, N=N)  # Convert SH coefficients to matrix
     shr2mat_elapsed_time_ns = (time_pack.time_ns() - shr2mat_start_time_ns)*1e-9
 
-    filename_gpu = "results/gpu_test_sim_N_{}.hdf5".format(str(N))
+    filename_gpu = "results/gpu_long_sim_N_{}.hdf5".format(str(N))
 
     # Callback data object
     mysim_gpu = qf.QuData(filename_gpu)
@@ -83,21 +77,8 @@ def main() -> None:
     # Flush cache data
     mysim_gpu.flush()
 
-    with open("results/elapsed_time.txt",'w') as time_file:
+    with open("results/gpu_long_elapsed_time.txt",'w') as time_file:
         time_file.write(f"{shr2mat_elapsed_time_ns}\n{sim_elapsed_time_ns}")
-
-    if plot_first_last_state:  
-        with h5py.File(filename_gpu, 'r') as data:
-            plt.figure()
-            omega = data['state'][0]
-            qf.plot2(omega, projection='hammer', N=520, colorbar=True)
-            plt.savefig(f"sim_{N}_initial.pdf", bbox_inches='tight')
-
-            # Plot last state
-            plt.figure()
-            omega = data['state'][-1]
-            qf.plot2(omega, projection='hammer', N=520, colorbar=True)
-            plt.savefig(f"sim_{N}_end.pdf", bbox_inches='tight')
 
 if __name__ == "__main__":
     main()
