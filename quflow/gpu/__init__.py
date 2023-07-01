@@ -1,4 +1,5 @@
 from . import gpu_core
+from . import utils
 
 try :
     from . import gpu_tf

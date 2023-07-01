@@ -1,0 +1,26 @@
+{
+    "device_name": "Device 0: b'NVIDIA GeForce GTX 1070':",
+    "sm_count": "\tmultiprocessor count: 15",
+    "block_sizes": [
+        32,
+        64,
+        96,
+        128,
+        256,
+        384,
+        512,
+        768,
+        1024
+    ],
+    "block_timings": [
+        14434,
+        13592,
+        13481,
+        13564,
+        13592,
+        14365,
+        15743,
+        19410,
+        23457
+    ]
+}
