@@ -117,16 +117,22 @@ def shr2mat_(omega, basis, W_out):
         bind0 = basis_break_indices[m]
         bind1 = basis_break_indices[m+1]
         basis_m_mat = basis[bind0:bind1].reshape((N-m, N-m)).astype(np.complex128)
+        print(basis_m_mat)
 
         if m == 0:  # Diagonal
             omega_zero_ind = elm2ind(np.arange(0, N), 0)
+            print(omega_zero_ind)
             diag = basis_m_mat@omega[omega_zero_ind].astype(np.complex128)
+            print(omega[omega_zero_ind])
             assign_lower_diag_(diag, 0, W_out)
         else:
             # Lower diagonal
             omega_minus_m_ind = elm2ind(np.arange(m, N), -m)
             omega_plus_m_ind = elm2ind(np.arange(m, N), m)
+            print(omega_minus_m_ind)
+            print(omega_plus_m_ind)
             omega_complex = (1./np.sqrt(2))*(omega[omega_plus_m_ind]-1j*omega[omega_minus_m_ind])
+            print(omega_complex)
             sgn = 1 if m % 2 == 0 else -1
             diag_m = basis_m_mat@omega_complex
             diag_m *= sgn
